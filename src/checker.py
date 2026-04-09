@@ -9,7 +9,7 @@ class CheckResult:
     url: str
     status_code: int | None
     response_time_ms: float
-    is_up: bool
+    is_available: bool
     error: str | None
     checked_at: str
 
@@ -17,22 +17,22 @@ def check_site(url: str, timeout: float = 5.0) -> CheckResult:
     start_time = time.perf_counter()
     status_code: Optional[int] = None
     error: Optional[str] = None
-    is_up: bool = False
+    is_available: bool = False
 
     try:
         response = httpx.get(url, timeout=timeout)
         status_code = response.status_code
-        is_up = True
+        is_available = True
         if status_code >= 400:
             error = f"HTTP {status_code}: {response.reason_phrase}"
     except httpx.ConnectError:
-        is_up = False
+        is_available = False
         error = "Не удалось подключиться к серверу"
     except httpx.TimeoutException:
-        is_up = False
+        is_available = False
         error = "Истекло время ожидания"
     except httpx.RequestError as exc:
-        is_up = False
+        is_available = False
         erorr = f"Ошибка запроса: {type(exc).__name__}"
     finally:
         end_time = time.perf_counter()
@@ -41,7 +41,7 @@ def check_site(url: str, timeout: float = 5.0) -> CheckResult:
         url=url,
         status_code=status_code,
         response_time_ms=response_time_ms,
-        is_up=is_up,
+        is_available=is_available,
         error=error,
         checked_at=datetime.now(timezone.utc).isoformat()
     )
