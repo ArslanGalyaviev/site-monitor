@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
+import asyncio
 import httpx
 import time
 
@@ -13,14 +14,14 @@ class CheckResult:
     error: str | None
     checked_at: str
 
-def check_site(url: str, timeout: float = 5.0) -> CheckResult:
+async def check_site_async(url: str, client: httpx.AsyncClient, timeout: float = 5.0) -> CheckResult:
     start_time = time.perf_counter()
     status_code: Optional[int] = None
     error: Optional[str] = None
     is_available: bool = False
 
     try:
-        response = httpx.get(url, timeout=timeout)
+        response = await client.get(url, timeout=timeout)
         status_code = response.status_code
         is_available = True
         if status_code >= 400:
@@ -46,14 +47,24 @@ def check_site(url: str, timeout: float = 5.0) -> CheckResult:
         checked_at=datetime.now(timezone.utc).isoformat()
     )
 
+async def check_multiple_sites(urls: list[str], timeout: float = 5.0) -> list[CheckResult]:
+    async with httpx.AsyncClient() as client:
+        tasks = [check_site_async(url, client, timeout) for url in urls]
+        results = await asyncio.gather(*tasks)
+        return list(results)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_urls = [
         "https://httpbin.org/status/200",
         "https://httpbin.org/status/500",
         "https://thissitedoesnotexist12345.com",
         "https://httpbin.org/delay/10"
     ]
-    for u in test_urls:
-        result = check_site(u, timeout=5.0)
-        print(result)
+    start = time.perf_counter()
+    results = asyncio.run(check_multiple_sites(test_urls, timeout=5.0))
+    total_time = time.perf_counter() - start
+    print(f"Потрачено {total_time:.2f} секунд на {len(test_urls)} ссылки")
+    for r in results:
+        print(r, end='\n\n')
+
+
