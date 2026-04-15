@@ -1,7 +1,9 @@
 import asyncio
 import logging
 from typing import Optional
+from notifier import TelegramNotifier
 import httpx
+import os
 
 from async_checker import check_site_async, CheckResult
 
@@ -13,12 +15,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class SiteMonitor:
-    def __init__(self, urls: list[str], check_interval: float = 30.0, timeout: float = 5.0):
+    def __init__(self, urls: list[str], check_interval: float = 30.0, timeout: float = 5.0, notifier: Optional[TelegramNotifier] = None):
         self.urls = urls
         self.check_interval = check_interval
         self.timeout = timeout
         self.number_of_failures: dict[str, int] = {url: 0 for url in urls}
         self.failure_threshold = 3
+        self.notifier = notifier
     
     async def check_and_track(self, url: str, client: httpx.AsyncClient) -> CheckResult:
         result = await check_site_async(url, client, self.timeout)
@@ -26,11 +29,17 @@ class SiteMonitor:
         if result.is_available:
             if self.number_of_failures[url] > 0:
                 logger.info(f"{url} восстановился после {self.number_of_failures[url]} неудач")
+                if self.notifier:
+                    text = self.notifier.format_alert(url, "Сайт восстановился", f"Время ответа: {result.response_time_ms} мс")
+                    await self.notifier.send_message(text)
             self.number_of_failures[url] = 0
         else:
             self.number_of_failures[url] += 1
             if self.number_of_failures[url] == self.failure_threshold:
                 logger.error(f"{url} упал, количество неудач подряд: {self.number_of_failures[url]}")
+                if self.notifier:
+                    text = self.notifier.format_alert(url, "Сайт упал", result.error or "Неизвестная ошибка")
+                    await self.notifier.send_message(text)
             elif self.number_of_failures[url] > self.failure_threshold:
                 logger.warning(f"{url} все еще не восстановлен, количество неудач подряд: {self.number_of_failures[url]}")
         return result
@@ -55,7 +64,17 @@ if __name__ == "__main__":
         "https://thissitedoesnotexist12345.com",
     ]
 
-    monitor = SiteMonitor(urls=test_urls, check_interval=30.0, timeout=5.0)
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    tg_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    notifier = None
+    if tg_token and tg_chat_id:
+        notifier = TelegramNotifier(token=tg_token, chat_id=int(tg_chat_id), timeout=15.0)
+        logger.info("Уведомления в Телеграмм включены")
+    else:
+        logger.warning("токен или айди не заданы, уведомления в Телеграмм выключены")
+
+    monitor = SiteMonitor(urls=test_urls, check_interval=30.0, timeout=5.0, notifier=notifier)
 
     try:
         asyncio.run(monitor.run())
